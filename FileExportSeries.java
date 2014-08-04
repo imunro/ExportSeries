@@ -49,6 +49,8 @@ import ome.xml.model.primitives.PositiveInteger;
 public class FileExportSeries {
   
   private int sizeT = 3;
+  private int rows = 2;
+  private int cols = 2;
 
   /** The file writer. */
   private ImageWriter writer;
@@ -74,7 +76,7 @@ public class FileExportSeries {
     IMetadata omexml = initializeMetadata(width, height, pixelType);
     int series = 0;
     int index = 0;
-    int nSeries = 1;
+    int nSeries = rows * cols;
     
     // only save a plane if the file writer was initialized successfully
     boolean initializationSuccess = initializeWriter(omexml);
@@ -145,9 +147,6 @@ public class FileExportSeries {
       meta.createRoot();
       
       String ImageStr = "Image:0-";
-      int cols = 2;
-      int rows = 2;
-      
       String suffixStr;
       int series = 0;
       
@@ -165,7 +164,7 @@ public class FileExportSeries {
 
           // specify that the pixel data is stored in big-endian format
           // change 'TRUE' to 'FALSE' to specify little-endian format
-          meta.setPixelsBinDataBigEndian(Boolean.TRUE, 0, series);
+          meta.setPixelsBinDataBigEndian(Boolean.TRUE,  series, 0);
 
           // specify that the images are stored in ZCT order
           meta.setPixelsDimensionOrder(DimensionOrder.XYZCT, series);
