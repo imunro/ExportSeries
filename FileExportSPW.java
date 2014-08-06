@@ -85,15 +85,20 @@ public class FileExportSPW {
     int pixelType = FormatTools.UINT16;
     Exception exception = null;
 
-    IMetadata omexml = initializeMetadata(width, height, pixelType);
+   
     
     int series = 0;
     int index = 0;
     int nSeries = rows * cols;
     Path path;
     
-    outputFile = outputBase + Integer.toString(1) + ".ome.tiff";
-    path = FileSystems.getDefault().getPath(outputFile);
+    IMetadata [] omexmlSets = initializeMetadata(width, height, pixelType);
+    
+    while (series < nSeries) {
+    
+      outputFile = outputBase + Integer.toString(series + 1) + ".ome.tiff";
+      path = FileSystems.getDefault().getPath(outputFile);
+    
       //delete if exists 
       //NB deleting old files seems to be critical when changing size
       try {
@@ -103,46 +108,24 @@ public class FileExportSPW {
         System.err.println(e);
       }
     
-    // only save a plane if the file writer was initialized successfully
-    boolean initializationSuccess = initializeWriter(omexml);
-   
-    if (initializationSuccess) {
-    
-    while (series < nSeries) {
+      IMetadata omexml = omexmlSets[series];
+      // only save a plane if the file writer was initialized successfully
+      boolean initializationSuccess = initializeWriter(omexml);
       
-      index = 0;
-      for (int p = 0; p < sizeT; p++) {
-        savePlane(width, height, pixelType, index, series);
-        index++;
-      }
-      series++;
-      if (series < nSeries)  {
-        try {
-          writer.setSeries(series);
-        } catch (FormatException e) {
-          exception = e;
-        }
-
-        outputFile = outputBase + Integer.toString(series + 1) + ".ome.tiff";
-        path = FileSystems.getDefault().getPath(outputFile);
-      //delete if exists 
-        //NB deleting old files seems to be critical when changing size
-        try {
-          boolean success = Files.deleteIfExists(path);
-          System.out.println("Delete status: " + success);
-        } catch (IOException | SecurityException e) {
-          System.err.println(e);
-        }
-
-        try {
-          writer.changeOutputFile(outputFile);
-        } catch (FormatException | IOException e) {
-          System.err.println(e);
-        }
+    
+      if (initializationSuccess) {
+        System.out.println("saving to ");
+        System.out.println(outputFile);
+        index = 0;
+          for (int p = 0; p < sizeT; p++) {
+            savePlane(width, height, pixelType, index, 0);
+            index++;
+          }
+        cleanup();
+        series++;
       }  //endif
-      }  //endwhile
-    }   //endif
-    cleanup();
+    }  //endwhile
+   
   }
 
   /**
@@ -181,40 +164,72 @@ public class FileExportSPW {
    * @param height the height (in pixels) of the image
    * @param pixelType the pixel type of the image; @see loci.formats.FormatTools
    */
-  private IMetadata initializeMetadata(int width, int height, int pixelType) {
+  private IMetadata[] initializeMetadata(int width, int height, int pixelType) {
     Exception exception = null;
+    
+     PositiveInteger pwidth = new PositiveInteger(width);
+     PositiveInteger pheight = new PositiveInteger(height);
+     
+     String plateId = MetadataTools.createLSID("Plate", 0);
+     int series = 0;
+     int well = 0;
+     OMEXMLMetadata [] metaDataSets = new OMEXMLMetadata[4];
+     
+     String [] imageIDs = new String[4];
+     imageIDs[0] = MetadataTools.createLSID("Image:0", 0);
+     imageIDs[1] = MetadataTools.createLSID("Image:1", 0);
+     imageIDs[2] = MetadataTools.createLSID("Image:2", 0);
+     imageIDs[3] = MetadataTools.createLSID("Image:3", 0);
+     
+     String [] wellIDs = new String[4];
+     wellIDs[0] = MetadataTools.createLSID("Well:0", 0);
+     wellIDs[1] = MetadataTools.createLSID("Well:1", 0);
+     wellIDs[2] = MetadataTools.createLSID("Well:2", 0);
+     wellIDs[3] = MetadataTools.createLSID("Well:3", 0);
+     
+     String [] wellSampleIDs = new String[4];
+     wellSampleIDs[0] = MetadataTools.createLSID("WellSample:0", 0);
+     wellSampleIDs[1] = MetadataTools.createLSID("WellSample:1", 0);
+     wellSampleIDs[2] = MetadataTools.createLSID("WellSample:2", 0);
+     wellSampleIDs[3] = MetadataTools.createLSID("WellSample:3", 0);
+     
+     String suffixStr;
+     int plateIndex = 0;
+     int sampleIndex = 0;
+    
     try {
-      // create the OME-XML metadata storage object
-      ServiceFactory factory = new ServiceFactory();
-      OMEXMLService service = factory.getInstance(OMEXMLService.class);
-      OMEXMLMetadata meta = service.createOMEXMLMetadata();
-      //IMetadata meta = service.createOMEXMLMetadata();
-      meta.createRoot();
       
-      String suffixStr;
-      int plateIndex = 0;
-      int sampleIndex = 0;
-      int series = 0;
-      int well = 0;
+       ServiceFactory factory = new ServiceFactory();
+       OMEXMLService service = factory.getInstance(OMEXMLService.class);
       
-      // Create Minimal 2x2 Plate 
-      meta.setPlateID(MetadataTools.createLSID("Plate", 0), 0);
-   
-      meta.setPlateRowNamingConvention(NamingConvention.LETTER, 0);
-      meta.setPlateColumnNamingConvention(NamingConvention.NUMBER, 0);
-
-      meta.setPlateRows(new PositiveInteger(rows), 0);
-      meta.setPlateColumns(new PositiveInteger(cols), 0);
-      meta.setPlateName("First test Plate", 0);
-      PositiveInteger pwidth = new PositiveInteger(width);
-      PositiveInteger pheight = new PositiveInteger(height);
-      
-      for (int row = 0; row  < rows; row++) {
+       for (int row = 0; row  < rows; row++) {
         for (int column = 0; column < cols; column++) {
+          
+          // create the OME-XML metadata storage object
+          
+          OMEXMLMetadata meta = service.createOMEXMLMetadata();
+          //IMetadata meta = service.createOMEXMLMetadata();
+          meta.createRoot();
+
+
+          // Create Minimal 2x2 Plate 
+          meta.setPlateID(plateId, 0);
+
+          meta.setPlateRowNamingConvention(NamingConvention.LETTER, 0);
+          meta.setPlateColumnNamingConvention(NamingConvention.NUMBER, 0);
+
+          meta.setPlateRows(new PositiveInteger(rows), 0);
+          meta.setPlateColumns(new PositiveInteger(cols), 0);
+          meta.setPlateName("First test Plate", 0);
+     
+       
+          suffixStr = Integer.toString(well);
+          
+         // Create Image
+          
          
-          suffixStr = Integer.toString(series);
-          // Create Image
-          String imageID = MetadataTools.createLSID("Image:" + suffixStr, series);
+          String imageID = imageIDs[well];
+          
           meta.setImageID(imageID, series);
           meta.setImageName("Image: " + suffixStr, series);
           meta.setPixelsID("Pixels:0:"+suffixStr, series);
@@ -241,23 +256,39 @@ public class FileExportSPW {
           meta.setChannelID("Channel:0:"+suffixStr, series,0 );
           meta.setChannelSamplesPerPixel(new PositiveInteger(1), series, 0);
           
-          // set up wells
-          String wellID = MetadataTools.createLSID("Well:" + suffixStr, 0, well);
-          meta.setWellID(wellID, plateIndex, well);
-          meta.setWellRow(new NonNegativeInteger(row), plateIndex, well);
-          meta.setWellColumn(new NonNegativeInteger(column), plateIndex, well); 
           
-          // one sample per well
-          String wellSampleID = MetadataTools.createLSID("WellSample", 0, series, sampleIndex);
-          meta.setWellSampleID(wellSampleID, 0, well, sampleIndex);
-          meta.setWellSampleIndex(new NonNegativeInteger(series), 0, series, sampleIndex);
-          meta.setWellSampleImageRef(imageID, 0, series, sampleIndex);  
+          // create a well for each row & column within each of the metadata blocs
+          int inwell = 0;
+          
+          for (int inrow = 0; inrow  < rows; inrow++) {
+            for (int incolumn = 0; incolumn < cols; incolumn++) {
+          
+              String wellID = wellIDs[inwell];
+              String inImageID = imageIDs[inwell];
+              // set up wells
+              meta.setWellID(wellID, plateIndex, inwell);
+              meta.setWellRow(new NonNegativeInteger(inrow), plateIndex, inwell);
+              meta.setWellColumn(new NonNegativeInteger(incolumn), plateIndex, inwell);
+
+              // one sample per well
+              String wellSampleID = wellSampleIDs[inwell];
+              meta.setWellSampleID(wellSampleID, 0, inwell, sampleIndex);
+              meta.setWellSampleIndex(new NonNegativeInteger(inwell), 0, inwell, sampleIndex);
+              //void setWellSampleImageRef(String image,int plateIndex, int wellIndex, int wellSampleIndex)
+              meta.setWellSampleImageRef(inImageID, 0, inwell, sampleIndex);
+
+              inwell++;
+            }
+          }
+    
+            
 
           // add FLIM ModuloAlongT annotation if required 
           CoreMetadata modlo = createModuloAnn(meta);
           service.addModuloAlong(meta, modlo, series);
+          
+           metaDataSets[well] = meta;
            
-          series++;
           well++;
       
         }
@@ -266,7 +297,7 @@ public class FileExportSPW {
       //String dump = meta.dumpXML();
       //System.out.println("dump = ");
       //System.out.println(dump);
-      return meta;
+      return metaDataSets;
       }
     
     
