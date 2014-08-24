@@ -56,9 +56,14 @@ import ome.xml.model.enums.NamingConvention;
  */
 public class FileExportSPW {
   
-  private int sizeT = 3;
-  private int rows = 2;
-  private int cols = 2;
+  private int pixelType = FormatTools.UINT16;
+  private int rows;
+  private int cols;
+  private int width;
+  private int height;
+  private int sizet;
+  boolean initializationSuccess = false;
+  
 
   /** The file writer. */
   private ImageWriter writer;
@@ -75,74 +80,52 @@ public class FileExportSPW {
    *
    * @param outputFile the file to which we will export
    */
-  public FileExportSPW(String outputBase) {
-    this.outputBase = outputBase;
+  public FileExportSPW(String outputFile) {
+    this.outputFile = outputFile;
+    
+            
+  }
+  
+  public boolean init( int[][] nFov, int sizeX, int  sizeY, int sizet)  {
+    this.rows = nFov.length;
+    this.cols = nFov[0].length;
+    width = sizeX;
+    this.height = sizeY;
+    this.sizet = sizet;
+    IMetadata omexml = initializeMetadata(nFov);
+     
+    Path path = FileSystems.getDefault().getPath(outputFile);
+      //delete if exists 
+    //NB deleting old files seems to be critical when changing size
+    try {
+      boolean success = Files.deleteIfExists(path);
+      System.out.println("Delete status: " + success);
+    } catch (IOException | SecurityException e) {
+      System.err.println(e);
+    }
+    
+    initializationSuccess = initializeWriter(omexml);
+    
+    return initializationSuccess;
+    
   }
 
   /** Save a single 2x2 uint16 plane of data. */
-  public void export() {
-    int width = 4, height = 4;
-    int pixelType = FormatTools.UINT16;
+  public void export(byte[] plane, int series, int index) {
+    
     Exception exception = null;
+    
 
-    IMetadata omexml = initializeMetadata(width, height, pixelType);
-    
-    int series = 0;
-    int index = 0;
-    int nSeries = rows * cols;
-    Path path;
-    
-    outputFile = outputBase + Integer.toString(1) + ".ome.tiff";
-    path = FileSystems.getDefault().getPath(outputFile);
-      //delete if exists 
-      //NB deleting old files seems to be critical when changing size
-      try {
-        boolean success = Files.deleteIfExists(path);
-        System.out.println("Delete status: " + success);
-      } catch (IOException | SecurityException e) {
-        System.err.println(e);
-      }
-    
-    // only save a plane if the file writer was initialized successfully
-    boolean initializationSuccess = initializeWriter(omexml);
-   
     if (initializationSuccess) {
-    
-    while (series < nSeries) {
-      
-      index = 0;
-      for (int p = 0; p < sizeT; p++) {
-        savePlane(width, height, pixelType, index, series);
-        index++;
-      }
-      series++;
-      if (series < nSeries)  {
+      if (series != writer.getSeries())  {
         try {
           writer.setSeries(series);
         } catch (FormatException e) {
           exception = e;
         }
-
-        outputFile = outputBase + Integer.toString(series + 1) + ".ome.tiff";
-        path = FileSystems.getDefault().getPath(outputFile);
-      //delete if exists 
-        //NB deleting old files seems to be critical when changing size
-        try {
-          boolean success = Files.deleteIfExists(path);
-          System.out.println("Delete status: " + success);
-        } catch (IOException | SecurityException e) {
-          System.err.println(e);
-        }
-
-        try {
-          writer.changeOutputFile(outputFile);
-        } catch (FormatException | IOException e) {
-          System.err.println(e);
-        }
-      }  //endif
-      }  //endwhile
-    }   //endif
-    cleanup();
+      }
+      savePlane( plane, index);
+    }   //endif 
   }
 
   /**
@@ -181,7 +164,7 @@ public class FileExportSPW {
    * @param height the height (in pixels) of the image
    * @param pixelType the pixel type of the image; @see loci.formats.FormatTools
    */
-  private IMetadata initializeMetadata(int width, int height, int pixelType) {
+  private IMetadata initializeMetadata(int[][] nFovs) {
     Exception exception = null;
     try {
       // create the OME-XML metadata storage object
@@ -193,9 +176,10 @@ public class FileExportSPW {
       
       String suffixStr;
       int plateIndex = 0;
-      int sampleIndex = 0;
       int series = 0;
       int well = 0;
+      int nFov;
+      String wellSampleID;
       
       // Create Minimal 2x2 Plate 
       meta.setPlateID(MetadataTools.createLSID("Plate", 0), 0);
@@ -234,24 +218,29 @@ public class FileExportSPW {
           meta.setPixelsSizeY(pheight, series);
           meta.setPixelsSizeZ(new PositiveInteger(1), series);
           meta.setPixelsSizeC(new PositiveInteger(1), series);
-          meta.setPixelsSizeT(new PositiveInteger(sizeT), series);
+          meta.setPixelsSizeT(new PositiveInteger(sizet), series);
 
           // define each channel and specify the number of samples in the channel
           // the number of samples is 3 for RGB images and 1 otherwise
           meta.setChannelID("Channel:0:"+suffixStr, series,0 );
           meta.setChannelSamplesPerPixel(new PositiveInteger(1), series, 0);
           
-          // set up wells
-          String wellID = MetadataTools.createLSID("Well:" + suffixStr, 0, well);
-          meta.setWellID(wellID, plateIndex, well);
-          meta.setWellRow(new NonNegativeInteger(row), plateIndex, well);
-          meta.setWellColumn(new NonNegativeInteger(column), plateIndex, well); 
+          nFov = nFovs[row][column];
           
-          // one sample per well
-          String wellSampleID = MetadataTools.createLSID("WellSample", 0, series, sampleIndex);
-          meta.setWellSampleID(wellSampleID, 0, well, sampleIndex);
-          meta.setWellSampleIndex(new NonNegativeInteger(series), 0, series, sampleIndex);
-          meta.setWellSampleImageRef(imageID, 0, series, sampleIndex);  
+          if (nFov > 0)  {
+            // set up wells
+            String wellID = MetadataTools.createLSID("Well:" + suffixStr, 0, well);
+            meta.setWellID(wellID, plateIndex, well);
+            meta.setWellRow(new NonNegativeInteger(row), plateIndex, well);
+            meta.setWellColumn(new NonNegativeInteger(column), plateIndex, well);
+
+            for (int sampleIndex = 0; sampleIndex < nFov; sampleIndex++) {
+              wellSampleID = MetadataTools.createLSID("WellSample:" + Integer.toString(sampleIndex), 0, series, sampleIndex);
+              meta.setWellSampleID(wellSampleID, 0, well, sampleIndex);
+              meta.setWellSampleIndex(new NonNegativeInteger(series), 0, series, sampleIndex);
+              meta.setWellSampleImageRef(imageID, 0, series, sampleIndex);
+            }
+          }
 
           // add FLIM ModuloAlongT annotation if required 
           CoreMetadata modlo = createModuloAnn(meta);
@@ -299,9 +288,9 @@ public class FileExportSPW {
     modlo.moduloT.unit = "ps";
     modlo.moduloT.typeDescription = "Gated";
 
-    modlo.moduloT.labels = new String[sizeT];
+    modlo.moduloT.labels = new String[sizet];
 
-    for (int i = 0; i < sizeT; i++) {
+    for (int i = 0; i < sizet; i++) {
       modlo.moduloT.labels[i] = Integer.toString(i * 1000);
     }
 
@@ -316,8 +305,8 @@ public class FileExportSPW {
    * @param height the height of the image in pixels
    * @param pixelType the pixel type of the image; @see loci.formats.FormatTools
    */
-  private void savePlane(int width, int height, int pixelType, int index, int series ) {
-    byte[] plane = createImage(width, height, pixelType, index, series);
+  private void savePlane(byte[] plane, int index) {
+    
     
     Exception exception = null;
     try {
@@ -342,7 +331,7 @@ public class FileExportSPW {
    * @param height the height of the image in pixels
    * @param pixelType the pixel type of the image; @see loci.formats.FormatTools
    */
-  private byte[] createImage(int width, int height, int pixelType, int index, int series) {
+  private byte[] createImage(int width, int height, int index, int series) {
     // create a blank image of the specified size
     int bpp = FormatTools.getBytesPerPixel(pixelType);
     byte[] img = new byte[width * height * bpp];
@@ -385,10 +374,33 @@ public class FileExportSPW {
    * $ java FileExport output-file.ome.tiff
    */
   public static void main(String[] args) throws Exception {
-    String baseName  = "SPWFromJava";
-    
-    FileExportSPW exporter = new FileExportSPW(baseName);
-    exporter.export();
+    String fileName  = "SPWFromJava.ome.tiff";
+    int nRows = 2;
+    int nCols = 2;
+    // 2d  Array *nRows x nCols giving no of FOVs per well
+    int [][] nFovInWell = new int[nRows][nCols];
+    int nImages = 0;
+    for (int row = 0; row  < nRows; row++) {
+        for (int column = 0; column < nCols; column++) {
+          nFovInWell[row][column] = 1;
+          nImages++;
+        }
+    }
+    //DEBUG try a zero FOV
+    nFovInWell[1][1] = 0;
+    // last 3 args are sizeX, sizeY, sizet
+    FileExportSPW exporter = new FileExportSPW(fileName);
+    boolean ok = exporter.init(nFovInWell, 2, 2, 3);
+    byte[] plane;
+    if (ok)  {
+      for (int i = 0;i < nImages; i++)  {
+        for(int t = 0; t < 3; t++)  {
+          plane = exporter.createImage(2,2, t, i);
+          exporter.export(plane, i , t);
+        }
+      }
+    }
+    exporter.cleanup();
   }
 
 }
